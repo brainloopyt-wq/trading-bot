@@ -4,6 +4,8 @@ import json
 import requests
 import numpy as np
 from datetime import datetime
+from threading import Thread
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from supabase import create_client, Client
 from google import genai
 from google.genai import types
@@ -23,6 +25,20 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 ACTIVE_ASSET = "XAUUSD" 
+
+# --- MINI SERVER WEB PER MANTENERE IL BOT GRATUITO SU RENDER ---
+class SimpleHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Flow-IA XAUUSD Trading Command Center is active 24/7!")
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
+    print(f"[WEB SERVER] In ascolto sulla porta {port}...")
+    server.serve_forever()
 
 def send_telegram_notification(message: str):
     """Invia una notifica push immediata su Telegram."""
@@ -69,7 +85,6 @@ def fetch_and_filter_market_data(asset: str):
         response = requests.get(url, headers=headers, timeout=5)
         data = response.json()
         
-        # Controllo di sicurezza se il mercato è chiuso o i dati non sono disponibili
         if not data.get('chart') or not data['chart'].get('result'):
             print("[MERCATO CHIUSO / DATI ASSENTI] Impossibile recuperare il feed spot in questo momento.")
             return {"is_interesting": False, "asset": asset, "current_price": 0.0}
@@ -222,7 +237,7 @@ def save_and_notify(data, asset):
     except Exception as e:
         print(f"[ERRORE DB/NOTIFICA]: {e}")
 
-def run_engine():
+def run_trading_engine():
     print(f"--- Avvio Command Center XAUUSD Engine ---")
     
     while True:
@@ -239,4 +254,9 @@ def run_engine():
         time.sleep(300)
 
 if __name__ == "__main__":
-    run_engine()
+    # Avvia il mini server web in background per il piano Free di Render
+    server_thread = Thread(target=run_web_server, daemon=True)
+    server_thread.start()
+    
+    # Avvia il motore di trading dell'Oro
+    run_trading_engine()
