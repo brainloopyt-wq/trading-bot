@@ -78,7 +78,7 @@ def calculate_rsi(prices, period=14):
     return float(rsi[-1])
 
 def fetch_and_filter_market_data(asset: str):
-    """Scarica i dati storici e il prezzo spot esatto dell'Oro (XAU/USD) con gestione sicura dei mercati chiusi."""
+    """Scarica i dati storici e filtra il mercato includendo i forti breakout direzionali."""
     try:
         url = "https://query1.finance.yahoo.com/v8/finance/chart/XAU=X?interval=5m&range=1d"
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -109,9 +109,15 @@ def fetch_and_filter_market_data(asset: str):
         
         trend_m5 = "BULLISH" if current_price > ema_9 and ema_9 > ema_21 else "BEARISH"
         
-        print(f"[DATI ORO SPOT] Prezzo: ${current_price:.2f} | RSI: {rsi_14:.2f} | Trend: {trend_m5}")
+        print(f"[DATI ORO SPOT] Prezzo: ${current_price:.2f} | RSI: {rsi_14:.2f} | Trend: {trend_m5} | Vol Ratio: {volume_ratio:.1f}%")
         
-        is_interesting = (30 <= rsi_14 <= 70)
+        # --- MODIFICA FILTRO: ACCETTA ANCHE IPERCOMPRATO/IPERVENDUTO SE C'È FORTE MOMENTUM ---
+        # Il bot diventa reattivo sia nella fascia classica (30-70) sia in caso di forte spinta direzionale (RSI fino a 85) con volumi alti.
+        is_normal_range = (30 <= rsi_14 <= 70)
+        is_strong_momentum = (70 < rsi_14 <= 85) and (volume_ratio > 110) and (trend_m5 == "BULLISH")
+        is_strong_down_momentum = (15 <= rsi_14 < 30) and (volume_ratio > 110) and (trend_m5 == "BEARISH")
+        
+        is_interesting = is_normal_range or is_strong_momentum or is_strong_down_momentum
         
         return {
             "is_interesting": is_interesting,
@@ -156,9 +162,9 @@ def generate_algorithmic_signal(market_data):
         "take_profit_2": tp2,
         "sl_pips": sl_distance,
         "risk_reward_ratio": round(tp1_distance / sl_distance, 2),
-        "confluence_score": 7,
-        "confluence_factors": ["Algorithmic Price Action", f"EMA Trend {trend}", "RSI Filter"],
-        "note": "⚠️ Generato senza IA (Solo Algoritmo Matematico)"
+        "confluence_score": 8,
+        "confluence_factors": ["Algorithmic Momentum Breakout", f"EMA Trend {trend}", "RSI Strong Trend Filter"],
+        "note": "⚠️ Generato senza IA (Solo Algoritmo Matematico con Momentum)"
     }
 
 def analyze_market_with_ai(market_data):
@@ -166,10 +172,12 @@ def analyze_market_with_ai(market_data):
     price = market_data["current_price"]
     rsi = market_data["rsi_14"]
     trend = market_data["calculated_trend"]
+    vol = market_data["volume_ratio"]
     
     prompt = f"""
     Sei un Quantitative Trading Engine specializzato nello scalping su Oro (XAUUSD). Prezzo spot attuale: ${price}.
-    - RSI: {rsi} | Trend M5: {trend}
+    - RSI: {rsi} | Trend M5: {trend} | Volume Ratio: {vol}%
+    Il mercato sta mostrando forte spinta. Valuta se aprire un'operazione di trend-following.
     Restituisci ESCLUSIVAMENTE un JSON valido:
     {{
       "valid_signal": true,
@@ -195,7 +203,7 @@ def analyze_market_with_ai(market_data):
             ),
         )
         result = json.loads(response.text)
-        result["note"] = "✅ Analizzato e Validato da Gemini AI"
+        result["note"] = "✅ Analizzato e Validato da Gemini AI (Momentum Mode)"
         return result
     except Exception as e:
         print(f"[AVVISO] Impossibile contattare Gemini. Attivo fallback matematico.")
@@ -244,11 +252,11 @@ def run_trading_engine():
         market_data = fetch_and_filter_market_data(ACTIVE_ASSET)
         
         if market_data["is_interesting"] and market_data["current_price"] > 0:
-            print("[TRIGGER] Condizioni soddisfacenti su XAUUSD. Analisi in corso...")
+            print("[TRIGGER] Condizioni di mercato (incluso Momentum) soddisfatte su XAUUSD. Analisi in corso...")
             analysis = analyze_market_with_ai(market_data)
             save_and_notify(analysis, ACTIVE_ASSET)
         else:
-            print("[SKIPPED] Mercato in attesa o dati non validi.")
+            print("[SKIPPED] Mercato in attesa o in fase laterale priva di volume.")
         
         print("In attesa del prossimo ciclo (5 minuti)...\n")
         time.sleep(300)
